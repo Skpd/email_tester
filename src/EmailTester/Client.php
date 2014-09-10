@@ -13,10 +13,12 @@ class Client
     const STATE_BUSY = 2;
     const STATE_IDLE = 4;
 
+    private $errno;
+    private $errstr;
     private $stream;
     /** @var \React\EventLoop\LoopInterface */
     private $loop;
-    private $email;
+    private $record;
     private $state;
     /** @var callable */
     private $onSuccess;
@@ -34,35 +36,38 @@ class Client
 
     public function connect($server)
     {
-        $this->stream = stream_socket_client($server);
+        $this->state = self::STATE_BUSY;
+
+        $this->stream = stream_socket_client($server, $this->errno, $this->errstr);
 
         $this->loop->addReadStream($this->stream, [$this, 'process']);
 
-        $this->state = self::STATE_BUSY;
-
         if (fwrite($this->stream, "helo hi\r\n") === false) {
             $this->state = self::STATE_DISCONNECTED;
-            $this->onFailure->__invoke($this->email, "Error while sending data");
+            $this->onFailure->__invoke($this->record, "Error while sending helo");
+            echo ($this->errno . ': ' . $this->errstr) . PHP_EOL;
             return;
         }
 
         if (fwrite($this->stream, "mail from: <test." . mt_rand(0, 99999) . "@example.com>\r\n") === false) {
             $this->state = self::STATE_DISCONNECTED;
-            $this->onFailure->__invoke($this->email, "Error while sending data");
+            $this->onFailure->__invoke($this->record, "Error while sending from");
+            echo ($this->errno . ': ' . $this->errstr) . PHP_EOL;
             return;
         }
     }
 
-    public function checkEmail($email)
+    public function checkEmail(array $record)
     {
         if ($this->state === self::STATE_IDLE) {
             $this->state = self::STATE_BUSY;
 
-            $this->email = trim($email);
+            $this->record = $record;
 
-            if (fwrite($this->stream, "rcpt to: <{$this->email}>\r\n") === false) {
+            if (fwrite($this->stream, "rcpt to: <{$this->record['email']}>\r\n") === false) {
                 $this->state = self::STATE_DISCONNECTED;
-                $this->onFailure->__invoke($this->email, "Error while sending data");
+                $this->onFailure->__invoke($this->record, "Error while sending rcpt");
+                echo ($this->errno . ': ' . $this->errstr) . PHP_EOL;
                 return;
             }
         }
@@ -70,15 +75,12 @@ class Client
 
     public function process($stream, $loop)
     {
-        if ($stream !== $this->stream || $loop !== $this->loop) {
-            throw new RuntimeException("Incorrect arguments to process.");
-        }
-
-        $response = fgets($this->stream);
+        $response = fgets($stream);
 
         if ($response === false) {
             $this->state = self::STATE_DISCONNECTED;
-            $this->onFailure->__invoke($this->email, "Error while sending data");
+            $this->onFailure->__invoke($this->record, "Error while reading data");
+            echo ($this->errno . ': ' . $this->errstr) . PHP_EOL;
             return;
         }
 
@@ -94,45 +96,26 @@ class Client
             return;
         }
 
-        if ($this->email === null) {
+        if ($this->record === null) {
             throw new LogicException("Email not set.");
         }
 
         if ($code === 250 && $sub === 215) {
+            $this->onSuccess->__invoke($this->record);
             $this->state = self::STATE_IDLE;
-            $this->onSuccess->__invoke($this->email);
-        } else if ($code === 550 && $sub === 511) {
-            $this->state = self::STATE_IDLE;
-            $this->onFailure->__invoke($this->email, "$code <$sub>");
-            fgets($this->stream);
-            fgets($this->stream);
-            fgets($this->stream);
-        } else if ($code === 550 && $sub === 521) {
-            $this->state = self::STATE_IDLE;
-            $this->onFailure->__invoke($this->email, "address disabled");
-        } else if ($code === 452 && $sub === 422) {
-            $this->state = self::STATE_IDLE;
-            $this->onFailure->__invoke($this->email, "address not found");
-        } else if ($code === 555 && $sub === 552) {
-            $this->state = self::STATE_IDLE;
-            $this->onFailure->__invoke($this->email, "$code <$sub>");
-        } else if ($code === 553 && $sub === 512) {
-            $this->state = self::STATE_IDLE;
-            $this->onFailure->__invoke($this->email, "$code <$sub>");
-        } else if ($code === 451 && $sub === 430) {
-            $this->state = self::STATE_IDLE;
-            $this->onFailure->__invoke($this->email, "$code <$sub>");
-        } else if ($code === 552 && $sub === 522) {
-            $this->state = self::STATE_IDLE;
-            $this->onFailure->__invoke($this->email, "$code <$sub>");
         } else if ($code === 452 && $sub === 453) {
-            $this->state = self::STATE_DISCONNECTED;
             $this->loop->removeReadStream($this->stream);
-            $this->onFailure->__invoke($this->email, "limit reached");
+            fclose($this->stream);
+            $this->onFailure->__invoke($this->record, "limit reached");
+            $this->state = self::STATE_DISCONNECTED;
         } else {
+            $this->onFailure->__invoke($this->record, false);
+
+            while (substr($response, -7, 5) !== 'gsmtp') {
+                $response = fgets($stream);
+            }
+
             $this->state = self::STATE_IDLE;
-            $this->onFailure->__invoke($this->email, "$code <$sub>: $response");
-//            throw new UnexpectedValueException("$code <$sub>: $response");
         }
     }
 
