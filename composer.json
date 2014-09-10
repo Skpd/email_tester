@@ -1,0 +1,19 @@
+{
+    "name": "skpd/email_tester",
+    "description": "email tester",
+    "minimum-stability": "dev",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Dmitry I Shabanov",
+            "email": "dm.skpd@gmail.com"
+        }
+    ],
+    "require": {
+        "react/react": "0.4.x-dev",
+        "zendframework/zend-log": "2.3.1"
+    },
+    "autoload": {
+        "psr-4": {"EmailTester\\": "src/EmailTester"}
+    }
+}
