@@ -7,7 +7,7 @@ use React\EventLoop\LoopInterface;
 use RuntimeException;
 use UnexpectedValueException;
 
-class Client
+class AsyncClient
 {
     const STATE_DISCONNECTED = 1;
     const STATE_BUSY = 2;

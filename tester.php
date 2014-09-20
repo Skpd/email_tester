@@ -3,6 +3,8 @@
 /** @var \Composer\Autoload\ClassLoader $loader */
 $loader = require_once 'vendor/autoload.php';
 
+use EmailTester\AsyncClient as Client;
+
 for ($i = 0; $i < 5; $i++) {
     $pid = pcntl_fork();
     if ($pid == -1) {
@@ -31,7 +33,7 @@ function goForIt() {
         'tcp://alt4.gmail-smtp-in.l.google.com:25',
     ];
 
-    /** @var \EmailTester\Client[] $clients */
+    /** @var Client[] $clients */
     $clients = [];
 
     $loop   = React\EventLoop\Factory::create();
@@ -46,7 +48,7 @@ function goForIt() {
     $checked = 0;
 
     for ($i = 0; $i < 100; $i++) {
-        $client = new \EmailTester\Client(
+        $client = new Client(
             $loop,
             function ($record) use (&$checked, $emails, $start, $logger) {
                 $record['state'] = 'valid';
@@ -80,17 +82,17 @@ function goForIt() {
 
     $loop->addPeriodicTimer(.001, function () use ($clients, $emails, $servers, $logger) {
         foreach ($clients as $c) {
-            if ($c->getState() === \EmailTester\Client::STATE_DISCONNECTED) {
+            if ($c->getState() === Client::STATE_DISCONNECTED) {
                 $logger->info(spl_object_hash($c) . ": connecting...");
                 $c->connect($servers[mt_rand(0, count($servers) - 1)]);
                 return;
             }
 
-            if ($c->getState() === \EmailTester\Client::STATE_BUSY) {
+            if ($c->getState() === Client::STATE_BUSY) {
                 continue;
             }
 
-            if ($c->getState() === \EmailTester\Client::STATE_IDLE) {
+            if ($c->getState() === Client::STATE_IDLE) {
                 $record = $emails->findOne(['state' => ['$exists' => false]]);
                 if (!isset($record['email'])) {
                     continue;
